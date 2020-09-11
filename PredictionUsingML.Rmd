@@ -1,6 +1,6 @@
 ---
 title: "Predicting Exercise Pattern Using ML"
-author: "Hadia Akbar"
+author: "bipin"
 output:
   html_document:
     keep_md: yes
