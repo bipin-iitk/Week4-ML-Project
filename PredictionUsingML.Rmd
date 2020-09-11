@@ -1,0 +1,133 @@
+---
+title: "Predicting Exercise Pattern Using ML"
+author: "Hadia Akbar"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Backgroud
+This project is aimed to predict the manner in which the people exercise. The dataset is acquired from the 'Weightlifting Exercise Dataset' from http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har . The weightlifting techniques are categorized in five clasees as specified by "classe" variable, these categories are
+ *  A: exactly according to the specification. 
+ *  B: Clasthrowing the elbows to the front.
+ *  C: Lifting the dumbbell only halfway.
+ *  D: lowering the dumbbell only halfway. 
+ *  E: and throwing the hips to the front.
+
+Class 'A' corresponds to the specified execution of the exercise, whereas the other four classes correspond to common mistakes. The goal of this project is to predic how pepople in the "test" group would exercise (Class A-E).
+
+##1. Data dowload and cleaning
+Install the libraries needed for this analysis
+```{r, echo=FALSE}
+library(readr); library(dplyr); library(purrr); library(tidyr); library(caret) 
+```
+
+Download data from the source.
+```{r}
+traindata <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),header=TRUE)
+testdata <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),header=TRUE)
+```
+The first seven coloumns contain information that is not useful for our model. Remove first seven coloumns. Additionally, there are many varibales with many empty slots; remove the variables that have 30% or more empty slots.
+```{r}
+train <- traindata[, -c(1:7)]
+train <-  train %>%  discard(~sum(is.na(.x))/length(.x)* 100 >= 30)
+#Also remove near zero varibles
+NearZ <- nearZeroVar(train)
+train <- train[, -NearZ]  
+
+test <- testdata[, -c(1:7)]
+test <-  test %>%   discard(~sum(is.na(.x))/length(.x)* 100 >= 30)
+NearZ <- nearZeroVar(test)
+#There are no near zero variables
+```
+We will keep the testdata for validation and build and test the model on traindata.
+
+##2. Building Model
+Split train data into testing and training data using "classe" variable
+```{r}
+Index <- createDataPartition(train$classe, p = 0.7, list = FALSE)
+training <- train[Index,]
+testing <- train[-Index,]
+```
+
+We will build 3 models using different ML algorithms and use the best model for prediction.
+
+###2.1. Cart (Classification and Regression Treess)
+```{r}
+#Build a model using training data
+cart <- train( classe ~ .,data=training,  method='rpart')
+#Predict
+cart_predict <- predict(cart, testing)
+#Extract confusion matrix and the accuracy of the model when tested with #the test set
+cart_cm<- confusionMatrix(cart_predict, testing$classe)
+cart_acc<- cart_cm[["overall"]][["Accuracy"]]*100
+cart_acc
+```
+Use rattle library to plot the decision tree of the final model.
+```{r}
+library(rattle)
+fancyRpartPlot(cart$finalModel)
+```
+
+###2.2. Gbm Model 
+```{r}
+#Build a model using training data
+set.seed(123)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats=1)
+gbm <- train( classe ~ .,data=training,  method='gbm', 
+              trControl = controlGBM, verbose=FALSE)
+
+gbm
+#Predict
+gbm_predict <- predict(gbm, testing)
+#Extract confusion matrix and the accuracy of the model when tested with #the test set
+gbm_cm<- confusionMatrix(gbm_predict, testing$classe)
+gbmacc<- gbm_cm[["overall"]][["Accuracy"]]*100
+gbmacc
+```
+
+###2.3. Random Forest Model
+```{r}
+library(randomForest)
+#Build a model using training data
+rf <- randomForest(classe ~., data=training); rf
+
+#Plot the results of model
+plot(rf)
+```
+
+```{r}
+#The plot shows that error rate decreases when number of trees increases until about 20-50 trees, after that the error rate is pretty constant. So we use number of trees in teh forest to be 50.
+rf <- randomForest(classe ~., data=training, ntree=50)
+
+#Predict
+rf_predict <- predict(rf, testing)
+
+#Extract confusion matrix and the accuracy of the model when tested with #the test set
+rf_cm<- confusionMatrix(rf_predict, testing$classe)
+rfacc<- rf_cm[["overall"]][["Accuracy"]] *100
+rfacc
+```
+
+Combine the accuracy results into a table
+```{r}
+t<- data.frame()
+t<- cbind(gbmacc, cart_acc, rfacc)
+t
+```
+The results how that random forest has the highest accuracy so we will use random forest to make final prediction. 
+
+## 3. Predicting on the test set.
+We can predict the outcome (How a person in each case is predicted to perform). Outcome of each case would be A,B,C,D or E depending upon the prediction. As random forest model has the best accuracy , we use rf to predict the outcome of our test cases.
+```{r}
+rf_final <- predict(rf, test)
+rf_final
+```
+
+###Out of Sample Error
+Out of sample error is estimated as 1 - accuracy for predictions for cross-validation set. 
+So out of sample error for the final model is 1- 0.992 = 0.0078
